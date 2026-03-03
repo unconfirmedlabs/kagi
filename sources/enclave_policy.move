@@ -100,12 +100,23 @@ public(package) fun load_pk<T: drop>(
     document: &NitroAttestationDocument,
 ): vector<u8> {
     assert!(document.to_pcrs() == self.pcrs, EInvalidPCRs);
-    (*document.public_key()).destroy!(|pk| return pk);
-    abort EMissingPublicKey
+    assert!(document.public_key().is_some(), EMissingPublicKey);
+    (*document.public_key()).destroy_some()
 }
 
 public(package) fun uid_mut<T: drop>(self: &mut EnclavePolicy<T>): &mut UID {
     &mut self.id
+}
+
+// === Test Functions ===
+
+#[test_only]
+/// Directly test load_pk — exposes the package-internal function for testing.
+public fun test_load_pk<T: drop>(
+    self: &EnclavePolicy<T>,
+    document: &NitroAttestationDocument,
+): vector<u8> {
+    self.load_pk(document)
 }
 
 // === Private Functions ===

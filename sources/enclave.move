@@ -116,6 +116,18 @@ public fun destroy<T: drop>(self: Enclave<T>, cap: EnclaveCap<T>) {
 // === Test Functions ===
 
 #[test_only]
+public fun destroy_for_testing<T: drop>(self: Enclave<T>) {
+    let Enclave { id, .. } = self;
+    id.delete();
+}
+
+#[test_only]
+public fun destroy_cap_for_testing<T: drop>(self: EnclaveCap<T>) {
+    let EnclaveCap { id, .. } = self;
+    id.delete();
+}
+
+#[test_only]
 use std::string::String;
 
 #[test_only]
