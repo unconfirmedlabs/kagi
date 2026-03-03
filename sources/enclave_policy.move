@@ -104,6 +104,10 @@ public(package) fun load_pk<T: drop>(
     abort EMissingPublicKey
 }
 
+public(package) fun uid_mut<T: drop>(self: &mut EnclavePolicy<T>): &mut UID {
+    &mut self.id
+}
+
 // === Private Functions ===
 
 fun to_pcrs(document: &NitroAttestationDocument): Pcrs {

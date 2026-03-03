@@ -41,7 +41,7 @@ Represents a verified enclave instance and provides signature verification.
 
 | Function | Description |
 |---|---|
-| `new` | Register an enclave by verifying a `NitroAttestationDocument` against an `EnclavePolicy`. Returns an `Enclave` and its `EnclaveCap`. |
+| `new` | Register an enclave by verifying a `NitroAttestationDocument` against an `EnclavePolicy`. Returns an `Enclave` and its `EnclaveCap`. UIDs are deterministically derived from the policy and public key. |
 | `share` | Share the enclave as a shared object. |
 | `verify_signature` | Verify an Ed25519 signature over a BCS-serialized intent message. Aborts on failure. |
 | `create_intent_message` | Create a BCS-serializable intent message from scope, timestamp, and payload. |
@@ -78,15 +78,17 @@ use kagi::enclave;
 
 public fun register(
     cap: &EnclavePolicyCap<MY_ENCLAVE>,
-    policy: &EnclavePolicy<MY_ENCLAVE>,
+    policy: &mut EnclavePolicy<MY_ENCLAVE>,
     document: NitroAttestationDocument,
     ctx: &mut TxContext,
 ) {
-    let (enclave, enclave_cap) = enclave::new(cap, policy, document, ctx);
+    let (enclave, enclave_cap) = enclave::new(cap, policy, document);
     enclave.share();
     transfer::public_transfer(enclave_cap, ctx.sender());
 }
 ```
+
+Enclave and EnclaveCap UIDs are deterministically derived from the policy and public key, so no `TxContext` is needed for `enclave::new`. The `ctx` above is only used for `transfer`.
 
 ### 3. Verify enclave-signed messages
 

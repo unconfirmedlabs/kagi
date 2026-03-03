@@ -5,6 +5,7 @@ module kagi::enclave;
 
 use kagi::enclave_policy::{EnclavePolicy, EnclavePolicyCap};
 use std::bcs::to_bytes;
+use sui::derived_object::claim;
 use sui::ed25519::ed25519_verify;
 use sui::nitro_attestation::NitroAttestationDocument;
 
@@ -27,6 +28,12 @@ public struct EnclaveCap<phantom T: drop> has key, store {
     enclave_id: ID,
 }
 
+/// Key for deriving an Enclave's UID.
+public struct EnclaveKey(vector<u8>) has copy, drop, store;
+
+/// Key for deriving an EnclaveCap's UID.
+public struct EnclaveCapKey() has copy, drop, store;
+
 /// An intent message, used for wrapping enclave messages for signing.
 public struct IntentMessage<T: drop> has copy, drop {
     intent: u8,
@@ -40,19 +47,18 @@ public struct IntentMessage<T: drop> has copy, drop {
 /// Returns an `Enclave` and its associated `EnclaveCap`.
 public fun new<T: drop>(
     _: &EnclavePolicyCap<T>,
-    policy: &EnclavePolicy<T>,
+    policy: &mut EnclavePolicy<T>,
     document: NitroAttestationDocument,
-    ctx: &mut TxContext,
 ): (Enclave<T>, EnclaveCap<T>) {
     let pk = policy.load_pk(&document);
 
-    let enclave = Enclave<T> {
-        id: object::new(ctx),
+    let mut enclave = Enclave<T> {
+        id: claim(policy.uid_mut(), EnclaveKey(pk)),
         pk,
     };
 
     let enclave_cap = EnclaveCap<T> {
-        id: object::new(ctx),
+        id: claim(&mut enclave.id, EnclaveCapKey()),
         enclave_id: enclave.id.to_inner(),
     };
 
