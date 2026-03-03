@@ -8,6 +8,11 @@ use std::bcs::to_bytes;
 use sui::ed25519::ed25519_verify;
 use sui::nitro_attestation::NitroAttestationDocument;
 
+// === Errors ===
+
+const EInvalidSignature: u64 = 0;
+const EInvalidEnclaveCap: u64 = 1;
+
 // === Structs ===
 
 /// A verified enclave instance, with its public key.
@@ -19,6 +24,7 @@ public struct Enclave<phantom T: drop> has key {
 /// A capability granting admin control over an `Enclave`.
 public struct EnclaveCap<phantom T: drop> has key, store {
     id: UID,
+    enclave_id: ID,
 }
 
 /// An intent message, used for wrapping enclave messages for signing.
@@ -31,7 +37,7 @@ public struct IntentMessage<T: drop> has copy, drop {
 // === Public Functions ===
 
 /// Register a new enclave by verifying a Nitro attestation document.
-/// The `Enclave` is shared and an `EnclaveCap` is returned to the caller.
+/// Returns an `Enclave` and its associated `EnclaveCap`.
 public fun new<T: drop>(
     _: &EnclavePolicyCap<T>,
     policy: &EnclavePolicy<T>,
@@ -47,21 +53,27 @@ public fun new<T: drop>(
 
     let enclave_cap = EnclaveCap<T> {
         id: object::new(ctx),
+        enclave_id: enclave.id.to_inner(),
     };
 
     (enclave, enclave_cap)
 }
 
+public fun share<T: drop>(self: Enclave<T>) {
+    transfer::share_object(self);
+}
+
 /// Verify an enclave signature over an intent message.
+/// Aborts with `EInvalidSignature` if the signature is invalid.
 public fun verify_signature<T: drop, P: drop>(
     self: &Enclave<T>,
     intent_scope: u8,
     timestamp_ms: u64,
     payload: P,
     signature: &vector<u8>,
-): bool {
+) {
     let intent_message = create_intent_message(intent_scope, timestamp_ms, payload);
-    ed25519_verify(signature, &self.pk, &to_bytes(&intent_message))
+    assert!(ed25519_verify(signature, &self.pk, &to_bytes(&intent_message)), EInvalidSignature);
 }
 
 /// Create a BCS-serializable intent message.
@@ -86,7 +98,9 @@ public fun pk<T: drop>(enclave: &Enclave<T>): &vector<u8> {
 // === Admin Functions ===
 
 /// Destroy an enclave and its admin capability.
+/// Aborts with `EInvalidEnclaveCap` if the cap does not match the enclave.
 public fun destroy<T: drop>(self: Enclave<T>, cap: EnclaveCap<T>) {
+    assert!(cap.enclave_id == self.id.to_inner(), EInvalidEnclaveCap);
     let Enclave { id, .. } = self;
     id.delete();
     let EnclaveCap { id, .. } = cap;
@@ -117,6 +131,6 @@ fun test_serde() {
             temperature: 13,
         },
     );
-    let bytes = bcs::to_bytes(&signing_payload);
+    let bytes = to_bytes(&signing_payload);
     assert!(bytes == x"0020b1d110960100000d53616e204672616e636973636f0d00000000000000", 0);
 }

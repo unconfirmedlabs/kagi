@@ -14,6 +14,7 @@ use fun to_pcrs as NitroAttestationDocument.to_pcrs;
 
 const EInvalidPCRs: u64 = 0;
 const ENotOneTimeWitness: u64 = 1;
+const EMissingPublicKey: u64 = 2;
 
 // === Structs ===
 
@@ -99,7 +100,8 @@ public(package) fun load_pk<T: drop>(
     document: &NitroAttestationDocument,
 ): vector<u8> {
     assert!(document.to_pcrs() == self.pcrs, EInvalidPCRs);
-    (*document.public_key()).destroy_some()
+    (*document.public_key()).destroy!(|pk| return pk);
+    abort EMissingPublicKey
 }
 
 // === Private Functions ===
