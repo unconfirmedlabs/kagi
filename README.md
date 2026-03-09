@@ -201,8 +201,7 @@ All functions default to the testnet package ID. Pass a custom `packageId` for o
 sui move build --path move
 
 # TypeScript SDK
-bun install
-bun test
+cd sdk && bun install && bun test
 ```
 
 ## License
