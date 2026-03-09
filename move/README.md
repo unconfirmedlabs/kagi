@@ -123,54 +123,6 @@ Intent messages are BCS-serialized as `IntentMessage<P>`:
 
 The enclave server must produce Ed25519 signatures over the same BCS encoding. Use `create_intent_message` and the included `test_serde` test as a reference for cross-language BCS compatibility.
 
-## TypeScript SDK
-
-The `kagi-sdk` package provides offline derivation of `Enclave` and `EnclaveCap` object IDs, so you can compute their addresses without querying the chain.
-
-### Install
-
-```bash
-bun add kagi-sdk
-```
-
-### API
-
-```typescript
-import { deriveEnclaveId, deriveEnclaveCapId, deriveEnclaveIds } from "kagi-sdk";
-```
-
-#### `deriveEnclaveId(policyId, publicKey, packageId?)`
-
-Derive the `Enclave<T>` object ID from its parent `EnclavePolicy<T>` ID and the enclave's Ed25519 public key.
-
-```typescript
-const enclaveId = deriveEnclaveId(
-  "0x<policy_object_id>",
-  enclavePublicKey, // Uint8Array (32 bytes)
-);
-```
-
-#### `deriveEnclaveCapId(enclaveId, packageId?)`
-
-Derive the `EnclaveCap<T>` object ID from its parent `Enclave<T>` ID.
-
-```typescript
-const capId = deriveEnclaveCapId(enclaveId);
-```
-
-#### `deriveEnclaveIds(policyId, publicKey, packageId?)`
-
-Convenience function that derives both IDs at once.
-
-```typescript
-const { enclaveId, enclaveCapId } = deriveEnclaveIds(
-  "0x<policy_object_id>",
-  enclavePublicKey,
-);
-```
-
-All functions default to the testnet package ID. Pass a custom `packageId` for other deployments.
-
 ## Errors
 
 ### `kagi::enclave`
@@ -192,17 +144,18 @@ All functions default to the testnet package ID. Pass a custom `packageId` for o
 
 | Network | Package ID |
 |---|---|
-| Testnet | `0x68b0993136fdc5aa02275a3a0b51f93e9b7c3b601867ec4a8123a76503665161` |
+| Testnet | `0x2cbdd9425600a1c2a4772f2e5c92d77feda423a21ed44c703e526852bd9f8247` |
 
 ## Building
 
 ```sh
-# Move contracts
-sui move build --path move
+sui move build
+```
 
-# TypeScript SDK
-bun install
-bun test
+## Testing
+
+```sh
+sui move test
 ```
 
 ## License

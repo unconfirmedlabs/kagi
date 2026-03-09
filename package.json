@@ -1,0 +1,14 @@
+{
+  "name": "kagi-sdk",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@mysten/sui": "^2.6.0"
+  }
+}

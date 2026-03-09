@@ -1,5 +1,7 @@
-build/*
+**/build/
 traces/*
 .trace
 .coverage*
 Pub.*.toml
+node_modules/
+.cursor/
