@@ -111,7 +111,7 @@ public fun consume(
 └────────┴──────────────────┴───────────────┘
 ```
 
-nautilus-rust's `NautilusContext::sign_bcs_payload` signs exactly this layout. The test `intent_message_layout_matches_nautilus_rust` pins the shared vector `0020b1d110960100000d53616e204672616e636973636f0d00000000000000`.
+nautilus-rust's `NautilusContext::sign_intent` (v0.2.0) signs exactly this layout. The test `intent_message_layout_matches_nautilus_rust` pins the shared vector `0020b1d110960100000d53616e204672616e636973636f0d00000000000000`.
 
 ## Events
 
