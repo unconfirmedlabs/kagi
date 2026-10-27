@@ -26,6 +26,7 @@ public struct WeatherResponse has copy, drop {
 }
 
 const ADMIN: address = @0xA;
+
 const PCR0: vector<u8> =
     x"cbe1afb6ed0ff89f10295af0b802247ec5670da8f886e71a4226373b032c322f4e42c9c98288e7211682b258684505a2";
 const PCR1: vector<u8> =
@@ -37,6 +38,7 @@ const OTHER_PCR: vector<u8> =
 const ZERO_PCR: vector<u8> =
     x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 const SHORT_PCR: vector<u8> = x"cbe1afb6ed0ff89f10295af0b802247ec5670da8f886e71a4226373b032c322f";
+
 const ATTESTED_AT_MS: u64 = 1_744_684_007_462;
 const ATTESTED_PK: vector<u8> = x"e8e62201dbe293b703c759f653107acbc2c911fa1d2e66f2c747bec95971a2af";
 const SIGNED_AT_MS: u64 = 1_744_683_300_000;
