@@ -3,11 +3,11 @@
 
 module kagi::enclave_policy;
 
-// === Imports ===
-
-use sui::event::emit;
-use sui::nitro_attestation::{NitroAttestationDocument, PCREntry};
-use sui::types::is_one_time_witness;
+use sui::{
+    event::emit,
+    nitro_attestation::{NitroAttestationDocument, PCREntry},
+    types::is_one_time_witness
+};
 
 // === Errors ===
 
@@ -17,10 +17,13 @@ const EDebugPcrs: u64 = 2;
 const EInvalidPcrs: u64 = 3;
 const EMissingPcr: u64 = 4;
 const EMissingPublicKey: u64 = 5;
+const ESamePcrs: u64 = 6;
+const EInvalidPublicKeyLength: u64 = 7;
 
 // === Constants ===
 
 const PCR_LENGTH: u64 = 48;
+const PUBLIC_KEY_LENGTH: u64 = 32;
 
 // === Structs ===
 
@@ -30,13 +33,17 @@ public struct EnclavePolicy<phantom App: drop> has key {
     version: u64,
 }
 
-public struct EnclavePolicyCap<phantom App: drop> has key, store {
+public struct EnclavePolicyAdminCap<phantom App: drop> has key, store {
     id: UID,
 }
 
 public struct Pcrs(vector<u8>, vector<u8>, vector<u8>) has copy, drop, store;
 
 // === Events ===
+
+public struct EnclavePolicyCreatedEvent<phantom App> has copy, drop {
+    policy_id: ID,
+}
 
 public struct EnclavePolicyPcrsSetEvent<phantom App> has copy, drop {
     policy_id: ID,
@@ -51,14 +58,15 @@ public struct EnclavePolicyPcrsSetEvent<phantom App> has copy, drop {
 public fun new<App: drop>(
     otw: App,
     ctx: &mut TxContext,
-): (EnclavePolicy<App>, EnclavePolicyCap<App>) {
+): (EnclavePolicy<App>, EnclavePolicyAdminCap<App>) {
     assert!(is_one_time_witness(&otw), ENotOneTimeWitness);
     let policy = EnclavePolicy<App> {
         id: object::new(ctx),
         pcrs: Pcrs(vector[], vector[], vector[]),
         version: 0,
     };
-    (policy, EnclavePolicyCap { id: object::new(ctx) })
+    emit(EnclavePolicyCreatedEvent<App> { policy_id: object::id(&policy) });
+    (policy, EnclavePolicyAdminCap { id: object::new(ctx) })
 }
 
 public fun share<App: drop>(self: EnclavePolicy<App>) {
@@ -87,7 +95,7 @@ public fun version<App: drop>(self: &EnclavePolicy<App>): u64 {
 
 public fun set_pcrs<App: drop>(
     self: &mut EnclavePolicy<App>,
-    _: &EnclavePolicyCap<App>,
+    _: &EnclavePolicyAdminCap<App>,
     pcr0: vector<u8>,
     pcr1: vector<u8>,
     pcr2: vector<u8>,
@@ -95,7 +103,11 @@ public fun set_pcrs<App: drop>(
     assert_valid_pcr(&pcr0);
     assert_valid_pcr(&pcr1);
     assert_valid_pcr(&pcr2);
+    let pcrs = Pcrs(pcr0, pcr1, pcr2);
+    assert!(pcrs != self.pcrs, ESamePcrs);
     self.version = self.version + 1;
+    self.pcrs = pcrs;
+    let Pcrs(pcr0, pcr1, pcr2) = pcrs;
     emit(EnclavePolicyPcrsSetEvent<App> {
         policy_id: self.id.to_inner(),
         version: self.version,
@@ -103,7 +115,6 @@ public fun set_pcrs<App: drop>(
         pcr1,
         pcr2,
     });
-    self.pcrs = Pcrs(pcr0, pcr1, pcr2);
 }
 
 // === Package Functions ===
@@ -115,7 +126,7 @@ public(package) fun load_pk<App: drop>(
     let entries = document.pcrs();
     let pcrs = Pcrs(pcr_at(entries, 0), pcr_at(entries, 1), pcr_at(entries, 2));
     assert!(pcrs == self.pcrs, EInvalidPcrs);
-    (*document.public_key()).destroy_or!(abort EMissingPublicKey)
+    checked_public_key(*document.public_key())
 }
 
 public(package) fun uid_mut<App: drop>(self: &mut EnclavePolicy<App>): &mut UID {
@@ -134,6 +145,12 @@ fun pcr_at(entries: &vector<PCREntry>, index: u8): vector<u8> {
     *entries[position.destroy_or!(abort EMissingPcr)].value()
 }
 
+fun checked_public_key(public_key: Option<vector<u8>>): vector<u8> {
+    let pk = public_key.destroy_or!(abort EMissingPublicKey);
+    assert!(pk.length() == PUBLIC_KEY_LENGTH, EInvalidPublicKeyLength);
+    pk
+}
+
 // === Test Functions ===
 
 #[test_only]
@@ -142,6 +159,21 @@ public fun load_pk_for_testing<App: drop>(
     document: &NitroAttestationDocument,
 ): vector<u8> {
     self.load_pk(document)
+}
+
+#[test_only]
+public fun pcr_at_for_testing(entries: &vector<PCREntry>, index: u8): vector<u8> {
+    pcr_at(entries, index)
+}
+
+#[test_only]
+public fun checked_public_key_for_testing(public_key: Option<vector<u8>>): vector<u8> {
+    checked_public_key(public_key)
+}
+
+#[test_only]
+public fun created_event_fields<App>(event: &EnclavePolicyCreatedEvent<App>): ID {
+    event.policy_id
 }
 
 #[test_only]

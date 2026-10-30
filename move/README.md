@@ -7,12 +7,17 @@ kagi = { git = "https://github.com/unconfirmedlabs/kagi.git", subdir = "move", r
 ```
 
 ```
-sources/enclave_policy.move   EnclavePolicy, PCRs and versioning
-sources/enclave.move          Enclave registration, signature verification, destruction
+sources/enclave_policy.move   EnclavePolicy, PCRs and versioning, attestation checks
+sources/enclave.move          Enclave registration, derive_address, signature verification, destroy and revoke
 tests/kagi_tests.move         unit tests, using a real Nitro attestation document
 ```
 
 ```sh
 sui move build
 sui move test --coverage
+sui move coverage summary
 ```
+
+API changes in this version: caps are renamed `EnclaveAdminCap` and `EnclavePolicyAdminCap`; `enclave::revoke` and `enclave::derive_address` are new; `set_pcrs` aborts `ESamePcrs` on unchanged PCRs; registration aborts `EInvalidPublicKeyLength` for a key that isn't 32 bytes; `enclave_policy::new` emits `EnclavePolicyCreatedEvent`. Details and error codes are in the repository README.
+
+Contact: contact@unconfirmed.com

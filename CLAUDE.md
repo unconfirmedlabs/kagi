@@ -109,3 +109,10 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.md`.
+
+## Kagi
+
+- Move package in `move/`, SDK in `sdk/`. Run `sui move test --coverage`, `sui move build --lint` and `sui move build --build-env mainnet` in `move/`, and `bun run test` and `bun run typecheck` in `sdk/`.
+- The SDK exports `deriveEnclaveId(policyId, publicKey, packageId)` (mirrors `kagi::enclave::derive_address(policy, pk)`), `deriveEnclaveAdminCapId(enclaveId, packageId)` (the cap is claimed under the enclave with `EnclaveAdminCapKey()`, a zero-field struct that BCS-encodes as one `0x00` byte) and `deriveEnclaveIds`. `packageId` is required.
+- `sdk/index.test.ts` pins the enclave and admin cap IDs that the Move test `derived_addresses_match_the_registered_objects` asserts. If the derivation key or test setup changes, update both together.
+- Policy-side API: `enclave::revoke(enclave, policy_admin_cap)` deletes any one enclave; `set_pcrs` aborts `ESamePcrs` on unchanged PCRs; public keys must be 32 bytes (`EInvalidPublicKeyLength`).
