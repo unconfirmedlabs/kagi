@@ -18,6 +18,6 @@ sui move test --coverage
 sui move coverage summary
 ```
 
-API changes in this version: `enclave::new` takes `ctx` and mints a fresh `EnclaveCap`; `enclave::revoke` and `enclave::derive_address` are new; `set_pcrs` aborts `ESamePcrs` on unchanged PCRs; registration aborts `EInvalidPublicKeyLength` for a key that isn't 32 bytes; `enclave_policy::new` emits `EnclavePolicyCreatedEvent`. Details and error codes are in the repository README.
+API changes in this version: caps are renamed `EnclaveAdminCap` and `EnclavePolicyAdminCap`; `enclave::revoke` and `enclave::derive_address` are new; `set_pcrs` aborts `ESamePcrs` on unchanged PCRs; registration aborts `EInvalidPublicKeyLength` for a key that isn't 32 bytes; `enclave_policy::new` emits `EnclavePolicyCreatedEvent`. Details and error codes are in the repository README.
 
 Contact: contact@unconfirmed.com

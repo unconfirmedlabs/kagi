@@ -3,7 +3,7 @@
 
 module kagi::enclave;
 
-use kagi::enclave_policy::{EnclavePolicy, EnclavePolicyCap};
+use kagi::enclave_policy::{EnclavePolicy, EnclavePolicyAdminCap};
 use std::bcs;
 use sui::{
     derived_object,
@@ -15,7 +15,7 @@ use sui::{
 // === Errors ===
 
 const EInvalidSignature: u64 = 0;
-const EWrongEnclaveCap: u64 = 1;
+const EWrongEnclaveAdminCap: u64 = 1;
 const ENotStale: u64 = 2;
 
 // === Structs ===
@@ -26,7 +26,7 @@ public struct Enclave<phantom App: drop> has key {
     policy_version: u64,
 }
 
-public struct EnclaveCap<phantom App: drop> has key, store {
+public struct EnclaveAdminCap<phantom App: drop> has key, store {
     id: UID,
     enclave_id: ID,
 }
@@ -38,6 +38,8 @@ public struct IntentMessage<Payload: drop> has copy, drop {
 }
 
 public struct EnclaveKey(vector<u8>) has copy, drop, store;
+
+public struct EnclaveAdminCapKey() has copy, drop, store;
 
 // === Events ===
 
@@ -54,7 +56,7 @@ public struct EnclaveDestroyedEvent<phantom App> has copy, drop {
 
 // === Method Aliases ===
 
-public use fun enclave_cap_enclave_id as EnclaveCap.enclave_id;
+public use fun enclave_admin_cap_enclave_id as EnclaveAdminCap.enclave_id;
 
 // === Public Functions ===
 
@@ -86,8 +88,8 @@ public fun destroy_stale<App: drop>(self: Enclave<App>, policy: &EnclavePolicy<A
     delete(self);
 }
 
-public fun destroy_cap<App: drop>(cap: EnclaveCap<App>) {
-    let EnclaveCap { id, enclave_id: _ } = cap;
+public fun destroy_admin_cap<App: drop>(cap: EnclaveAdminCap<App>) {
+    let EnclaveAdminCap { id, enclave_id: _ } = cap;
     id.delete();
 }
 
@@ -105,7 +107,7 @@ public fun policy_version<App: drop>(self: &Enclave<App>): u64 {
     self.policy_version
 }
 
-public fun enclave_cap_enclave_id<App: drop>(cap: &EnclaveCap<App>): ID {
+public fun enclave_admin_cap_enclave_id<App: drop>(cap: &EnclaveAdminCap<App>): ID {
     cap.enclave_id
 }
 
@@ -113,31 +115,33 @@ public fun enclave_cap_enclave_id<App: drop>(cap: &EnclaveCap<App>): ID {
 
 public fun new<App: drop>(
     policy: &mut EnclavePolicy<App>,
-    _: &EnclavePolicyCap<App>,
+    _: &EnclavePolicyAdminCap<App>,
     document: NitroAttestationDocument,
-    ctx: &mut TxContext,
-): (Enclave<App>, EnclaveCap<App>) {
+): (Enclave<App>, EnclaveAdminCap<App>) {
     let pk = policy.load_pk(&document);
     let policy_id = object::id(policy);
     let policy_version = policy.version();
-    let enclave = Enclave<App> {
+    let mut enclave = Enclave<App> {
         id: derived_object::claim(policy.uid_mut(), EnclaveKey(pk)),
         pk,
         policy_version,
     };
     let enclave_id = object::id(&enclave);
-    let cap = EnclaveCap<App> { id: object::new(ctx), enclave_id };
+    let cap = EnclaveAdminCap<App> {
+        id: derived_object::claim(&mut enclave.id, EnclaveAdminCapKey()),
+        enclave_id,
+    };
     emit(EnclaveRegisteredEvent<App> { policy_id, enclave_id, policy_version, pk });
     (enclave, cap)
 }
 
-public fun destroy<App: drop>(self: Enclave<App>, cap: EnclaveCap<App>) {
-    assert!(cap.enclave_id == object::id(&self), EWrongEnclaveCap);
-    destroy_cap(cap);
+public fun destroy<App: drop>(self: Enclave<App>, cap: EnclaveAdminCap<App>) {
+    assert!(cap.enclave_id == object::id(&self), EWrongEnclaveAdminCap);
+    destroy_admin_cap(cap);
     delete(self);
 }
 
-public fun revoke<App: drop>(self: Enclave<App>, _: &EnclavePolicyCap<App>) {
+public fun revoke<App: drop>(self: Enclave<App>, _: &EnclavePolicyAdminCap<App>) {
     delete(self);
 }
 

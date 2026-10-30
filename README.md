@@ -20,7 +20,7 @@ Kagi has two steps:
 
 | Function | Who may call | What it does |
 |---|---|---|
-| `new<App>(otw, ctx)` | the app's `init` | Creates the one policy for `App`, with its PCRs unset, and returns it with its `EnclavePolicyCap`. |
+| `new<App>(otw, ctx)` | the app's `init` | Creates the one policy for `App`, with its PCRs unset, and returns it with its `EnclavePolicyAdminCap`. |
 | `share` | anyone | Shares the policy. |
 | `set_pcrs(self, cap, pcr0, pcr1, pcr2)` | the cap holder | Sets the expected PCRs and increments `version`. Aborts `ESamePcrs` if they equal the current PCRs. |
 | `pcr0`, `pcr1`, `pcr2`, `version` | anyone | Views. |
@@ -36,23 +36,23 @@ Kagi has two steps:
 
 | Function | Who may call | What it does |
 |---|---|---|
-| `new(policy, cap, document, ctx)` | the policy's cap holder | Checks the attestation document's PCR0, PCR1 and PCR2, matched by index, against the policy, and requires a 32-byte Ed25519 public key. Returns an `Enclave` holding that key and the policy version, plus a new `EnclaveCap`. |
+| `new(policy, cap, document)` | the policy's cap holder | Checks the attestation document's PCR0, PCR1 and PCR2, matched by index, against the policy, and requires a 32-byte Ed25519 public key. Returns an `Enclave` holding that key and the policy version, plus its `EnclaveAdminCap`. |
 | `share` | anyone | Shares the enclave. |
 | `verify_signature(self, intent, timestamp_ms, payload, signature)` | anyone | Checks an Ed25519 signature over `bcs(IntentMessage { intent, timestamp_ms, payload })`. Aborts `EInvalidSignature`. |
 | `create_intent_message` | anyone | Builds the message that `verify_signature` checks. |
-| `destroy(self, cap)` | the enclave's cap holder | Deletes the enclave and its `EnclaveCap`. Aborts `EWrongEnclaveCap` for another enclave's cap. |
-| `revoke(self, cap)` | the policy's cap holder | Deletes any one enclave of the policy, without its `EnclaveCap`. |
+| `destroy(self, cap)` | the enclave's cap holder | Deletes the enclave and its `EnclaveAdminCap`. Aborts `EWrongEnclaveAdminCap` for another enclave's cap. |
+| `revoke(self, cap)` | the policy's cap holder | Deletes any one enclave of the policy, without its `EnclaveAdminCap`. |
 | `destroy_stale(self, policy)` | anyone | Deletes an enclave registered under PCRs that have since changed. Aborts `ENotStale` otherwise. |
-| `destroy_cap` | the cap holder | Deletes an `EnclaveCap`, for example after `destroy_stale` or `revoke`. |
+| `destroy_admin_cap` | the cap holder | Deletes an `EnclaveAdminCap`, for example after `destroy_stale` or `revoke`. |
 | `derive_address(policy, pk)` | anyone | The address an `Enclave` registered under `policy` with `pk` has, or would have. |
-| `pk`, `policy_version`, `enclave_cap_enclave_id` (alias `cap.enclave_id()`) | anyone | Views. |
+| `pk`, `policy_version`, `enclave_admin_cap_enclave_id` (alias `cap.enclave_id()`) | anyone | Views. |
 
 - **Registration needs the policy cap**, so nobody else can register enclaves, even ones running the right image.
-- **The `Enclave` ID is derived** from the policy and the public key (`EnclaveKey(pk)`), so `derive_address` and the SDK compute it offline. The `EnclaveCap` is an ordinary new object that stores `enclave_id`.
+- **The `Enclave` ID is derived** from the policy and the public key (`EnclaveKey(pk)`), so `derive_address` and the SDK compute it offline. The `EnclaveAdminCap` ID is derived from the enclave (`EnclaveAdminCapKey()`), so it can be found from the enclave ID alone; the cap also stores `enclave_id` for the reverse lookup.
 - **A public key registers once per policy, ever.** The derived ID is claimed on the policy permanently, so registering the same key again aborts `sui::derived_object::EObjectAlreadyExists`, even after the enclave was destroyed, cleared as stale or revoked. A revoked key can never come back; a rebooted enclave generates a new key.
 - **The public key must be 32 bytes** (Ed25519), or `new` aborts `EInvalidPublicKeyLength`. A document without one aborts `EMissingPublicKey`, and one without PCR0, PCR1 or PCR2 aborts `EMissingPcr`.
-- **`revoke` is the policy admin's kill switch** for a single enclave, for example a compromised one, whoever holds its `EnclaveCap`. It emits the same `EnclaveDestroyedEvent` as the other deletion paths. The orphaned `EnclaveCap` can then only be deleted with `destroy_cap`.
-- **Every deletion path is clean.** An `Enclave` has no dynamic fields, so `destroy`, `destroy_stale` and `revoke` leave nothing behind but the policy's permanent claim on the key.
+- **`revoke` is the policy admin's kill switch** for a single enclave, for example a compromised one, whoever holds its `EnclaveAdminCap`. It emits the same `EnclaveDestroyedEvent` as the other deletion paths. The orphaned `EnclaveAdminCap` can then only be deleted with `destroy_admin_cap`.
+- **Deleting an enclave leaves its cap's `Claimed` marker behind.** Each deleted `Enclave` strands one small dynamic field, and its storage deposit isn't refunded. Apart from that and the policy's permanent claim on the key, `destroy`, `destroy_stale` and `revoke` leave nothing.
 - **`verify_signature` doesn't read the policy**, so verifying adds no shared object to a transaction. To retire an image, the cap holder calls `set_pcrs` and `revoke` (or `destroy`) for the old enclaves in the same PTB. Anyone can clear up leftovers later with `destroy_stale`.
 - **Domain separation is the `intent` byte.** Give each kind of message its own intent value.
 - **`timestamp_ms` comes from the enclave's clock,** which the host provides. Treat it as the time the enclave claims, not as attested time.
@@ -62,8 +62,8 @@ Kagi has two steps:
 ```move
 module my_app::my_enclave;
 
-use kagi::enclave::{Self, Enclave, EnclaveCap};
-use kagi::enclave_policy::{Self, EnclavePolicy, EnclavePolicyCap};
+use kagi::enclave::{Self, Enclave, EnclaveAdminCap};
+use kagi::enclave_policy::{Self, EnclavePolicy, EnclavePolicyAdminCap};
 use sui::nitro_attestation::NitroAttestationDocument;
 
 public struct MY_ENCLAVE() has drop;
@@ -83,13 +83,12 @@ fun init(otw: MY_ENCLAVE, ctx: &mut TxContext) {
 
 public fun register(
     policy: &mut EnclavePolicy<MY_ENCLAVE>,
-    cap: &EnclavePolicyCap<MY_ENCLAVE>,
+    cap: &EnclavePolicyAdminCap<MY_ENCLAVE>,
     document: NitroAttestationDocument,
-    ctx: &mut TxContext,
-): EnclaveCap<MY_ENCLAVE> {
-    let (enclave, enclave_cap) = enclave::new(policy, cap, document, ctx);
+): EnclaveAdminCap<MY_ENCLAVE> {
+    let (enclave, enclave_admin_cap) = enclave::new(policy, cap, document);
     enclave.share();
-    enclave_cap
+    enclave_admin_cap
 }
 
 public fun consume(
@@ -102,7 +101,7 @@ public fun consume(
 }
 ```
 
-- **Send the `EnclavePolicyCap` to an address your app chooses,** such as a multisig. `ADMIN` above is a placeholder; replace it with your own admin address.
+- **Send the `EnclavePolicyAdminCap` to an address your app chooses,** such as a multisig. `ADMIN` above is a placeholder; replace it with your own admin address.
   > **Warning:** if the package is published by an ephemeral or throwaway signer, a cap sent to `ctx.sender()` is lost forever. The policy then can never set PCRs, register an enclave or revoke one.
 - **Take `Enclave<MY_ENCLAVE>`, never a generic `Enclave<T>`.** A generic parameter would let an enclave registered for any other app sign for yours.
 - **Get the document from `sui::nitro_attestation::load_nitro_attestation(bytes, clock)`** in the same PTB. It checks the AWS certificate chain at the clock's time.
@@ -143,12 +142,12 @@ nautilus-rust's `NautilusContext::sign_intent` (v0.2.0) signs exactly this layou
 | `enclave_policy` | `ESamePcrs` | 6 |
 | `enclave_policy` | `EInvalidPublicKeyLength` | 7 |
 | `enclave` | `EInvalidSignature` | 0 |
-| `enclave` | `EWrongEnclaveCap` | 1 |
+| `enclave` | `EWrongEnclaveAdminCap` | 1 |
 | `enclave` | `ENotStale` | 2 |
 
 ## TypeScript SDK
 
-`sdk/` (`kagi-sdk`) derives `Enclave` object IDs offline with `deriveEnclaveId(policyId, publicKey, packageId)`, the same value as `enclave::derive_address`. `packageId` is required: it is the published kagi package that defines `EnclaveKey`. `EnclaveCap` IDs aren't derived; read the cap's ID from the registration transaction, or find the enclave's cap by its `enclave_id`. The test suite pins the ID that the Move test `derive_address_matches_the_registered_enclave` asserts, so the two implementations can't drift.
+`sdk/` (`kagi-sdk`) derives object IDs offline: `deriveEnclaveId(policyId, publicKey, packageId)` (the same value as `enclave::derive_address`), `deriveEnclaveAdminCapId(enclaveId, packageId)` and `deriveEnclaveIds(policyId, publicKey, packageId)`. `packageId` is required: it is the published kagi package that defines the keys. The zero-field `EnclaveAdminCapKey` is encoded as Move encodes it, as one `dummy_field: bool` byte (`0x00`). The test suite pins the enclave and cap IDs that the Move test `derived_addresses_match_the_registered_objects` asserts, so the two implementations can't drift.
 
 ## Deployments
 

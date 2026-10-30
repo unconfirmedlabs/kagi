@@ -33,7 +33,7 @@ public struct EnclavePolicy<phantom App: drop> has key {
     version: u64,
 }
 
-public struct EnclavePolicyCap<phantom App: drop> has key, store {
+public struct EnclavePolicyAdminCap<phantom App: drop> has key, store {
     id: UID,
 }
 
@@ -58,7 +58,7 @@ public struct EnclavePolicyPcrsSetEvent<phantom App> has copy, drop {
 public fun new<App: drop>(
     otw: App,
     ctx: &mut TxContext,
-): (EnclavePolicy<App>, EnclavePolicyCap<App>) {
+): (EnclavePolicy<App>, EnclavePolicyAdminCap<App>) {
     assert!(is_one_time_witness(&otw), ENotOneTimeWitness);
     let policy = EnclavePolicy<App> {
         id: object::new(ctx),
@@ -66,7 +66,7 @@ public fun new<App: drop>(
         version: 0,
     };
     emit(EnclavePolicyCreatedEvent<App> { policy_id: object::id(&policy) });
-    (policy, EnclavePolicyCap { id: object::new(ctx) })
+    (policy, EnclavePolicyAdminCap { id: object::new(ctx) })
 }
 
 public fun share<App: drop>(self: EnclavePolicy<App>) {
@@ -95,7 +95,7 @@ public fun version<App: drop>(self: &EnclavePolicy<App>): u64 {
 
 public fun set_pcrs<App: drop>(
     self: &mut EnclavePolicy<App>,
-    _: &EnclavePolicyCap<App>,
+    _: &EnclavePolicyAdminCap<App>,
     pcr0: vector<u8>,
     pcr1: vector<u8>,
     pcr2: vector<u8>,
