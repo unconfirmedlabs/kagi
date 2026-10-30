@@ -1,5 +1,5 @@
 **/build/
-traces/*
+**/traces/
 .trace
 .coverage*
 Pub.*.toml

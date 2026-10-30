@@ -4,15 +4,24 @@
 #[test_only]
 module kagi::kagi_tests;
 
-use std::bcs;
-use std::string::String;
-use std::unit_test::{assert_eq, destroy};
-use sui::clock::{Self, Clock};
-use sui::event;
-use sui::nitro_attestation::{Self, NitroAttestationDocument};
-use sui::test_scenario::{Self, Scenario};
-use kagi::enclave::{Self, Enclave, EnclaveCap, EnclaveRegisteredEvent, EnclaveDestroyedEvent};
-use kagi::enclave_policy::{Self, EnclavePolicy, EnclavePolicyCap, EnclavePolicyPcrsSetEvent};
+use kagi::{
+    enclave::{Self, Enclave, EnclaveCap, EnclaveRegisteredEvent, EnclaveDestroyedEvent},
+    enclave_policy::{
+        Self,
+        EnclavePolicy,
+        EnclavePolicyCap,
+        EnclavePolicyCreatedEvent,
+        EnclavePolicyPcrsSetEvent,
+    }
+};
+use std::{bcs, string::String, unit_test::{assert_eq, destroy}};
+use sui::{
+    clock::{Self, Clock},
+    derived_object,
+    event,
+    nitro_attestation::{Self, NitroAttestationDocument, PCREntry},
+    test_scenario::{Self, Scenario}
+};
 
 // === Test Types ===
 
@@ -38,6 +47,10 @@ const OTHER_PCR: vector<u8> =
 const ZERO_PCR: vector<u8> =
     x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 const SHORT_PCR: vector<u8> = x"cbe1afb6ed0ff89f10295af0b802247ec5670da8f886e71a4226373b032c322f";
+
+const POLICY_ADDRESS: address = @0x034401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96;
+const ENCLAVE_ADDRESS: address =
+    @0x08aea01667c85d97c7642fffb184f7cb2541749a69266c283723c94dcba0aa93;
 
 const ATTESTED_AT_MS: u64 = 1_744_684_007_462;
 const ATTESTED_PK: vector<u8> = x"e8e62201dbe293b703c759f653107acbc2c911fa1d2e66f2c747bec95971a2af";
@@ -84,7 +97,7 @@ fun register(
     cap: &EnclavePolicyCap<KAGI_TESTS>,
 ): (Enclave<KAGI_TESTS>, EnclaveCap<KAGI_TESTS>) {
     let document = document(scenario);
-    enclave::new(policy, cap, document)
+    enclave::new(policy, cap, document, scenario.ctx())
 }
 
 fun weather(temperature: u64): WeatherResponse {
@@ -102,6 +115,19 @@ fun new_policy_starts_unset_at_version_zero() {
     assert!(policy.pcr2().is_empty());
     assert_eq!(policy.version(), 0);
     policy.share();
+    destroy(cap);
+    scenario.end();
+}
+
+#[test]
+fun new_policy_emits_the_created_event() {
+    let mut scenario = begin();
+    let (policy, cap) = new_policy(&mut scenario);
+    let events = event::events_by_type<EnclavePolicyCreatedEvent<KAGI_TESTS>>();
+    assert_eq!(events.length(), 1);
+    assert_eq!(enclave_policy::created_event_fields(&events[0]), object::id(&policy));
+    assert_eq!(event::events_by_type<EnclavePolicyPcrsSetEvent<KAGI_TESTS>>().length(), 0);
+    destroy(policy);
     destroy(cap);
     scenario.end();
 }
@@ -134,6 +160,33 @@ fun set_pcrs_stores_them_and_bumps_the_version() {
     scenario.end();
 }
 
+#[test]
+fun set_pcrs_rotates_to_other_pcrs() {
+    let mut scenario = begin();
+    let (mut policy, cap) = configured_policy(&mut scenario);
+    policy.set_pcrs(&cap, PCR0, PCR1, OTHER_PCR);
+    assert_eq!(*policy.pcr2(), OTHER_PCR);
+    assert_eq!(policy.version(), 2);
+    let events = event::events_by_type<EnclavePolicyPcrsSetEvent<KAGI_TESTS>>();
+    assert_eq!(events.length(), 2);
+    let (_, version, pcr0, pcr1, pcr2) = enclave_policy::pcrs_set_event_fields(&events[1]);
+    assert_eq!(version, 2);
+    assert_eq!(pcr0, PCR0);
+    assert_eq!(pcr1, PCR1);
+    assert_eq!(pcr2, OTHER_PCR);
+    destroy(policy);
+    destroy(cap);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = enclave_policy::ESamePcrs)]
+fun set_pcrs_rejects_the_current_pcrs() {
+    let mut scenario = begin();
+    let (mut policy, cap) = configured_policy(&mut scenario);
+    policy.set_pcrs(&cap, PCR0, PCR1, PCR2);
+    abort
+}
+
 #[test, expected_failure(abort_code = enclave_policy::EInvalidPcrLength)]
 fun set_pcrs_rejects_a_short_pcr() {
     let mut scenario = begin();
@@ -159,6 +212,7 @@ fun register_extracts_the_attested_key() {
     let (enclave, enclave_cap) = register(&mut scenario, &mut policy, &policy_cap);
     assert_eq!(*enclave.pk(), ATTESTED_PK);
     assert_eq!(enclave.policy_version(), 1);
+    assert_eq!(enclave_cap.enclave_id(), object::id(&enclave));
     assert_eq!(enclave::enclave_cap_enclave_id(&enclave_cap), object::id(&enclave));
     let events = event::events_by_type<EnclaveRegisteredEvent<KAGI_TESTS>>();
     assert_eq!(events.length(), 1);
@@ -168,6 +222,22 @@ fun register_extracts_the_attested_key() {
     assert_eq!(policy_version, 1);
     assert_eq!(pk, ATTESTED_PK);
     enclave.share();
+    destroy(enclave_cap);
+    destroy(policy);
+    destroy(policy_cap);
+    scenario.end();
+}
+
+#[test]
+fun derive_address_matches_the_registered_enclave() {
+    let mut scenario = begin();
+    let (mut policy, policy_cap) = configured_policy(&mut scenario);
+    assert_eq!(object::id(&policy).to_address(), POLICY_ADDRESS);
+    assert_eq!(enclave::derive_address(&policy, ATTESTED_PK), ENCLAVE_ADDRESS);
+    let (enclave, enclave_cap) = register(&mut scenario, &mut policy, &policy_cap);
+    assert_eq!(object::id(&enclave).to_address(), ENCLAVE_ADDRESS);
+    assert!(object::id(&enclave_cap).to_address() != ENCLAVE_ADDRESS);
+    destroy(enclave);
     destroy(enclave_cap);
     destroy(policy);
     destroy(policy_cap);
@@ -202,13 +272,62 @@ fun register_rejects_other_pcrs() {
     abort
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = derived_object::EObjectAlreadyExists)]
 fun register_rejects_the_same_key_twice() {
     let mut scenario = begin();
     let (mut policy, cap) = configured_policy(&mut scenario);
     let (_first, _first_cap) = register(&mut scenario, &mut policy, &cap);
     let (_second, _second_cap) = register(&mut scenario, &mut policy, &cap);
     abort
+}
+
+#[test, expected_failure(abort_code = derived_object::EObjectAlreadyExists)]
+fun register_rejects_a_destroyed_key() {
+    let mut scenario = begin();
+    let (mut policy, cap) = configured_policy(&mut scenario);
+    let (enclave, enclave_cap) = register(&mut scenario, &mut policy, &cap);
+    enclave.destroy(enclave_cap);
+    let (_again, _again_cap) = register(&mut scenario, &mut policy, &cap);
+    abort
+}
+
+#[test, expected_failure(abort_code = derived_object::EObjectAlreadyExists)]
+fun register_rejects_a_revoked_key() {
+    let mut scenario = begin();
+    let (mut policy, cap) = configured_policy(&mut scenario);
+    let (enclave, _enclave_cap) = register(&mut scenario, &mut policy, &cap);
+    enclave.revoke(&cap);
+    let (_again, _again_cap) = register(&mut scenario, &mut policy, &cap);
+    abort
+}
+
+#[test, expected_failure(abort_code = enclave_policy::EMissingPcr)]
+fun pcr_at_rejects_a_missing_pcr() {
+    let entries = vector<PCREntry>[];
+    enclave_policy::pcr_at_for_testing(&entries, 0);
+}
+
+#[test]
+fun checked_public_key_accepts_an_ed25519_key() {
+    assert_eq!(
+        enclave_policy::checked_public_key_for_testing(option::some(ATTESTED_PK)),
+        ATTESTED_PK,
+    );
+}
+
+#[test, expected_failure(abort_code = enclave_policy::EMissingPublicKey)]
+fun checked_public_key_rejects_a_missing_key() {
+    enclave_policy::checked_public_key_for_testing(option::none());
+}
+
+#[test, expected_failure(abort_code = enclave_policy::EInvalidPublicKeyLength)]
+fun checked_public_key_rejects_a_short_key() {
+    enclave_policy::checked_public_key_for_testing(option::some(x"e8e622"));
+}
+
+#[test, expected_failure(abort_code = enclave_policy::EInvalidPublicKeyLength)]
+fun checked_public_key_rejects_a_long_key() {
+    enclave_policy::checked_public_key_for_testing(option::some(PCR0));
 }
 
 // === Signatures ===
@@ -273,6 +392,40 @@ fun destroy_with_its_cap() {
     scenario.end();
 }
 
+#[test]
+fun revoke_without_the_enclave_cap() {
+    let mut scenario = begin();
+    let (mut policy, policy_cap) = configured_policy(&mut scenario);
+    let (enclave, enclave_cap) = register(&mut scenario, &mut policy, &policy_cap);
+    let enclave_id = object::id(&enclave);
+    enclave.revoke(&policy_cap);
+    let events = event::events_by_type<EnclaveDestroyedEvent<KAGI_TESTS>>();
+    assert_eq!(events.length(), 1);
+    assert_eq!(enclave::destroyed_event_fields(&events[0]), enclave_id);
+    enclave::destroy_cap(enclave_cap);
+    destroy(policy);
+    destroy(policy_cap);
+    scenario.end();
+}
+
+#[test]
+fun revoke_a_shared_enclave() {
+    let mut scenario = begin();
+    let (mut policy, policy_cap) = configured_policy(&mut scenario);
+    let (enclave, enclave_cap) = register(&mut scenario, &mut policy, &policy_cap);
+    let enclave_id = object::id(&enclave);
+    enclave.share();
+    scenario.next_tx(ADMIN);
+    let shared = scenario.take_shared_by_id<Enclave<KAGI_TESTS>>(enclave_id);
+    shared.revoke(&policy_cap);
+    scenario.next_tx(ADMIN);
+    assert!(!test_scenario::has_most_recent_shared<Enclave<KAGI_TESTS>>());
+    enclave::destroy_cap(enclave_cap);
+    destroy(policy);
+    destroy(policy_cap);
+    scenario.end();
+}
+
 #[test, expected_failure(abort_code = enclave::EWrongEnclaveCap)]
 fun destroy_rejects_another_cap() {
     let mut scenario = begin();
@@ -307,7 +460,7 @@ fun destroy_stale_rejects_a_current_enclave() {
 }
 
 #[test]
-fun test_enclave_round_trips() {
+fun enclave_for_testing_round_trips() {
     let mut scenario = begin();
     let enclave = enclave::new_for_testing<KAGI_TESTS>(ATTESTED_PK, 3, scenario.ctx());
     assert_eq!(enclave.policy_version(), 3);
