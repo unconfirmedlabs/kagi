@@ -1,3 +1,5 @@
+> **Superseded.** This repository is archived. Its successor is [`misofm/framework/enclave`](https://github.com/misofm/framework/tree/main/enclave), a redesign: enclave keys are entries on the policy, registration is permissionless, and a PCR change retires every older key. No on-chain state carries over.
+
 # Kagi
 
 A Sui Move library for verifying [AWS Nitro Enclave](https://aws.amazon.com/ec2/nitro/nitro-enclaves/) attestations and enclave-signed messages on-chain. It is the on-chain half of [nautilus-rust](https://github.com/unconfirmedlabs/nautilus-rust), and it works with any [Nautilus](https://github.com/MystenLabs/nautilus) enclave through Sui's native `NitroAttestationDocument`.
